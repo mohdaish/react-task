@@ -69,71 +69,77 @@ export default function Dashboard({ user }) {
 
   // Handle drag & drop
   const onDragEnd = async (result) => {
-    const { destination, source, draggableId } = result;
-    if (!destination) return;
+  const { destination, source, draggableId } = result;
+  if (!destination) return;
 
-    if (
-      destination.droppableId === source.droppableId &&
-      destination.index === source.index
-    ) {
-      return;
-    }
-
-    const movedTask = tasks.find((t) => t.id === draggableId);
-    if (!movedTask) return;
-
-    const batch = writeBatch(db);
-
-    const isPriorityDrop = destination.droppableId.startsWith("priority-");
-    const isListDrop = destination.droppableId.startsWith("list-");
-
-
-    // 1️⃣ Priority Drop → only update priority
-   if (isPriorityDrop) {
-  const level = destination.droppableId.replace("priority-", "");
-  const priorityMap = { High: 1, Medium: 2, Low: 3 };
-  const newPriority = priorityMap[level];
-
-  if (movedTask.priority !== newPriority) {
-    const ref = doc(db, "tasks", movedTask.id);
-    batch.update(ref, { priority: newPriority });
+  if (
+    destination.droppableId === source.droppableId &&
+    destination.index === source.index
+  ) {
+    return;
   }
 
-      await batch.commit();
-      return;
-    }
+  const movedTask = tasks.find((t) => t.id === draggableId);
+  if (!movedTask) return;
 
-    // 2️⃣ List Drop → only update listId/order
-    if (isListDrop) {
-      const sourceListId = source.droppableId.replace("list-", "");
-      const destListId = destination.droppableId.replace("list-", "");
+  const batch = writeBatch(db);
 
-      const destTasks = tasks
-        .filter((t) => t.listId === destListId)
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const isPriorityDrop = destination.droppableId.includes("priority-");
+  const isListDrop = destination.droppableId.startsWith("list-");
 
-      if (sourceListId === destListId) {
-        destTasks.splice(source.index, 1);
-      }
+  if (isPriorityDrop) {
+  // Use regex to safely extract listId and level
+  const match = destination.droppableId.match(/^priority-(.+?)-(High|Medium|Low)$/);
 
-      destTasks.splice(destination.index, 0, movedTask);
+  if (match) {
+    const [, listId, level] = match; 
+    const priorityMap = { High: 1, Medium: 2, Low: 3 };
+    const newPriority = priorityMap[level];
 
-      if (movedTask.listId !== destListId) {
-        const ref = doc(db, "tasks", movedTask.id);
-        batch.update(ref, { listId: destListId });
-      }
-
-      destTasks.forEach((t, idx) => {
-        const ref = doc(db, "tasks", t.id);
-        if ((t.order ?? 0) !== idx) {
-          batch.update(ref, { order: idx });
-        }
+    if (movedTask.priority !== newPriority) {
+      const ref = doc(db, "tasks", movedTask.id);
+      batch.update(ref, {
+        priority: newPriority,
+        listId: movedTask.listId, // keep task in same list
       });
-
-      await batch.commit();
-      return;
     }
-  };
+
+    await batch.commit();
+    return; // ✅ don't continue to list reorder
+  }
+}
+  // 2️⃣ List Drop → update listId + order
+  if (isListDrop) {
+    const sourceListId = source.droppableId.replace("list-", "");
+    const destListId = destination.droppableId.replace("list-", "");
+
+    const destTasks = tasks
+      .filter((t) => t.listId === destListId)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+    if (sourceListId === destListId) {
+      destTasks.splice(source.index, 1);
+    }
+
+    destTasks.splice(destination.index, 0, movedTask);
+
+    if (movedTask.listId !== destListId) {
+      const ref = doc(db, "tasks", movedTask.id);
+      batch.update(ref, { listId: destListId });
+    }
+
+    destTasks.forEach((t, idx) => {
+      const ref = doc(db, "tasks", t.id);
+      if ((t.order ?? 0) !== idx) {
+        batch.update(ref, { order: idx });
+      }
+    });
+
+    await batch.commit();
+    return;
+  }
+};
+
 
   return (
     <div className="min-h-screen bg-gray-100 p-8">
@@ -148,46 +154,57 @@ export default function Dashboard({ user }) {
         <AddList onAdd={addList} />
       </div>
 
-      <DragDropContext onDragEnd={onDragEnd}>
-        {/* Task Lists */}
-        <div className="flex gap-6 overflow-x-auto pb-6">
-          {lists.map((list) => {
-            const listTasks = tasks
-              .filter((t) => t.listId === list.id)
-              .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    <DragDropContext onDragEnd={onDragEnd}>
+  {/* Task Lists */}
+  <div className="flex gap-6 overflow-x-auto pb-6">
+    {lists.map((list) => {
+      const listTasks = tasks
+        .filter((t) => t.listId === list.id)
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+// Add this near the top of Dashboard.js
+const priorityColors = {
+  High: "bg-red-200 text-red-800",
+  Medium: "bg-yellow-200 text-yellow-800",
+  Low: "bg-green-200 text-green-800",
+};
 
-            return (
-              <div
-                key={list.id}
-                className="bg-white rounded-xl shadow-md p-5 w-80 flex-shrink-0"
-              >
-                <ListColumn list={list} tasks={listTasks} onAddTask={addTask} />
-              </div>
-            );
-          })}
-        </div>
+      return (
+        <div
+          key={list.id}
+          className="bg-white rounded-xl shadow-md p-5 w-80 flex-shrink-0"
+        >
+          <ListColumn list={list} tasks={listTasks} onAddTask={addTask} />
 
-        {/* Priority Drop Zones */}
-        <div className="mt-8">
-          <h2 className="text-lg font-semibold mb-4">Change Task Priority</h2>
-          <div className="flex gap-8">
-            {["High", "Medium", "Low"].map((level) => (
-              <Droppable droppableId={`priority-${level}`} key={level}>
-                {(provided) => (
-                  <div
-                    ref={provided.innerRef}
-                    {...provided.droppableProps}
-                    className="bg-gray-200 rounded-xl p-5 w-40 min-h-[100px] flex-shrink-0 text-center"
-                  >
-                    {level}
-                    {provided.placeholder}
-                  </div>
-                )}
-              </Droppable>
-            ))}
+          {/* Priority Drop Zones per list */}
+          <div className="mt-4">
+            <h3 className="text-sm font-semibold mb-2">Change Task Priority (Drop here)</h3>
+            <div className="flex flex-col gap-3">
+  {["High", "Medium", "Low"].map((level) => (
+ <Droppable droppableId={`priority-${list.id}-${level}`} key={`${list.id}-${level}`}>
+
+      {(provided, snapshot) => (
+       <div
+      ref={provided.innerRef}
+      {...provided.droppableProps}
+      className={`rounded-xl p-3 min-h-[60px] text-center text-xs font-semibold
+        ${snapshot.isDraggingOver ? "ring-2 ring-blue-400" : ""}
+        ${priorityColors[level]}`}
+    >
+      {level}
+      {provided.placeholder}
+    </div>
+      )}
+    </Droppable>
+  ))}
+</div>
+
           </div>
         </div>
-      </DragDropContext>
+      );
+    })}
+  </div>
+</DragDropContext>
+
     </div>
   );
 }

@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { Droppable, Draggable } from "@hello-pangea/dnd";
 import TaskCard from "./TaskCard";
+import { auth } from "../firebase"; 
 
 export default function ListColumn({ list, tasks, onAddTask }) {
   return (
@@ -53,7 +54,8 @@ function AddTaskForm({ onAdd }) {
       title,
       desc,
       dueDate: due ? new Date(due) : null,
-      priority: Number(priority), // always send a number
+      priority: Number(priority),
+      userId: auth.currentUser.uid,  // always send a number
     });
 
     setTitle("");

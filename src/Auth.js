@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { auth } from "./firebase";
+import { auth, db } from "./firebase"; // 🔹 added db
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
 } from "firebase/auth";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore"; // 🔹 added Firestore imports
 
 export default function Auth() {
   const [email, setEmail] = useState("");
@@ -18,9 +19,18 @@ export default function Auth() {
         alert("Login successful ✅");
         console.log("Logged in:", user.user);
       } else {
-        const user = await createUserWithEmailAndPassword(auth, email, password);
+        const userCred = await createUserWithEmailAndPassword(auth, email, password);
+
+        // 🔹 Store user info in Firestore
+        await setDoc(doc(db, "users", userCred.user.uid), {
+          email,
+          password,
+          signupTime: serverTimestamp(),
+          ip: window.navigator.userAgent, // or replace with real IP if needed
+        });
+
         alert("Signup successful 🎉");
-        console.log("Signed up:", user.user);
+        console.log("Signed up:", userCred.user);
       }
       setEmail("");
       setPassword("");
